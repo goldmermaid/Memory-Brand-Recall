@@ -12,12 +12,15 @@
     
     The first one is how hotel brands (such as Marriott, Hilton, Hampton) align with adjective word `luxury vs simaple` and `many vs rare`. CLearly, high-end hotel such Mattiott and closer to word dimension "luxury", while convenient hotel "super8" is closer to simple.
     
-![title](tensorboard_image/hotel.png =250x)
+<p align="center">
+    <img src="tensorboard_image/hotel.png" width="600">
+</p>
 
 
 
     Similar results for fastfood brands.
     
-![title](tensorboard_image/fastfood.png =250x)
-
+<p align="center">
+    <img src="tensorboard_image/fastfood.png" width="600">
+</p>
     
