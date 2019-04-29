@@ -1,0 +1,322 @@
+---
+title: "gas_station modelling"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+# run the following lane, so it can generate different pdf 
+# library(rmarkdown)
+# rmarkdown::render('modelling_applied.Rmd',
+#                   output_file = paste("soda", '.pdf', sep=''))
+```
+
+## Load library, functions & dataset
+
+```{r, library and source import, error=FALSE, include=FALSE}
+library(dplyr)
+source(paste(getwd(), "/functions.R", sep = ""))
+data_folder_name <- "fluency_data_by_category"
+cat = "gas_station"
+
+ff.fluency.numeric <- 
+  readRDS(file = paste(getwd(), "/", data_folder_name, "/", cat,"_fluency_cleaned.numeric.rds",sep = ""))
+ff.brands.table <- 
+  readRDS(file = paste(getwd(), "/", data_folder_name,  "/", cat,"_fluency_brand_table.rds",sep = ""))
+
+ff.emp.adjacency <- count.empirical.transitions(ff.fluency.numeric, ff.brands.table)
+# write.csv(ff.emp.adjacency, file = paste("/",data_folder_name, "/", cat,"_empirical_adjacency.csv"))
+
+ff.fluency.long <- transform.fluency.data(ff.fluency.numeric, ff.brands.table)
+ff.fluency.long$recalled <- as.factor(ff.fluency.long$recalled)
+```
+
+```{r, redefine function "retrieve.similarities", include=FALSE }
+# data_folder_name = "similarity_by_category"
+
+retrieve.similarities.table <- function(category_name, metric, source) {
+  file.name <- paste(getwd(),"/",data_folder_name, "/", category_name, "_", metric, "_", source, ".csv", sep = "")
+  # print(file.name)
+  df <- read.csv(file.name, stringsAsFactors = FALSE)
+  newdf <- df[3:dim(df)[1]-1,]  ## remove first/second row (index and "closest_word") and last row
+  
+  colnames(newdf)[1] <- "brand_name"
+  numBrands <- dim(newdf)[1]
+  
+  out.df <- data.frame(brand_name = character(numBrands),
+                       brand_cat_sim = numeric(numBrands),
+                       avg_brand_brand_sim = numeric(numBrands),
+                       stringsAsFactors = FALSE)
+  out.df$brand_name <- newdf$brand_name
+  out.df$brand_cat_sim <- newdf[,dim(newdf)[2]]
+  pairwise_brand_brand_sim <- newdf[1:numBrands,2:(numBrands+1)]
+  
+  pairwise_brand_brand_sim <- mutate_all(pairwise_brand_brand_sim, 
+                                         function(x) as.numeric(as.character(x)))  ## as.numeric
+  for (i in 1:numBrands) {
+    out.df$avg_brand_brand_sim[i] <- sum(pairwise_brand_brand_sim[i,-i])/numBrands
+  }
+  out.df <- transform(out.df, brand_cat_sim = as.numeric(brand_cat_sim))  ## transform to numeric
+  return(out.df)
+}
+
+```
+
+```{r, load data to table, error=FALSE, include=FALSE}
+ff.cos.Twitter <- retrieve.similarities.table(cat, "Cosine", "Twitter")
+ff.dot.Twitter <- retrieve.similarities.table(cat, "DotProduct", "Twitter")
+ff.cos.Wiki <- retrieve.similarities.table(cat, "Cosine", "Wiki")
+ff.dot.Wiki <- retrieve.similarities.table(cat, "DotProduct", "Wiki")
+ff.cos.Word2vec <- retrieve.similarities.table(cat, "Cosine", "Word2vec")
+ff.dot.Word2vec <- retrieve.similarities.table(cat, "DotProduct", "Word2vec")
+
+ff.fluency.dot.Twitter <- join.fluency.similarities(ff.fluency.long, ff.dot.Twitter)
+ff.fluency.dot.Wiki <- join.fluency.similarities(ff.fluency.long, ff.dot.Wiki)
+# ff.fluency.dot.Wiki <- join.fluency.similarities.standardized(ff.fluency.long, ff.dot.Wiki)
+ff.fluency.dot.Word2vec <- join.fluency.similarities(ff.fluency.long, ff.dot.Word2vec)
+
+ff.fluency.cos.Twitter <- join.fluency.similarities(ff.fluency.long, ff.cos.Twitter)
+ff.fluency.cos.Wiki <- join.fluency.similarities(ff.fluency.long, ff.cos.Wiki)
+ff.fluency.cos.Word2vec <- join.fluency.similarities(ff.fluency.long, ff.dot.Word2vec)
+```
+
+
+
+
+
+
+
+
+
+## Modelling
+### simple logistic regression of recall (binary) on brand-category similarity and average brand-brand similarity
+
+```{r, Twitter - DotProduct}
+fit.ff.dot.Twitter <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim ,
+                          family = binomial(link = "logit"),
+                          data = ff.fluency.dot.Twitter)
+summary(fit.ff.dot.Twitter)
+
+fit.ff.dot.Twitter2 <- glm(recalled ~ brand_cat_sim,
+                              family = binomial(link = "logit"),
+                              data = ff.fluency.dot.Twitter)
+summary(fit.ff.dot.Twitter2)
+
+# ANOVA between models with/without average brand-brand similarity
+anova(fit.ff.dot.Twitter2, fit.ff.dot.Twitter, test = "LRT")
+```
+
+
+
+```{r, Twitter - DotProduct 1&3}
+fit.ff.dot.Twitter3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim +brand_cat_sim*avg_brand_brand_sim, 
+                          family = binomial(link = "logit"), 
+                          data = ff.fluency.dot.Twitter)
+summary(fit.ff.dot.Twitter3)
+
+# ANOVA between models 1&3 
+anova(fit.ff.dot.Twitter3, fit.ff.dot.Twitter, test = "LRT")
+
+```
+
+
+```{r, Twitter - Cosine}
+fit.ff.cos.Twitter <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim, 
+                           family = binomial(link = "logit"), 
+                           data = ff.fluency.cos.Twitter)
+summary(fit.ff.cos.Twitter)
+
+fit.ff.cos.Twitter2 <- glm(recalled ~ brand_cat_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Twitter)
+summary(fit.ff.cos.Twitter2)
+
+# ANOVA between models with/without average brand-brand similarity
+anova(fit.ff.cos.Twitter2, fit.ff.cos.Twitter, test = "LRT")
+```
+
+
+```{r, Twitter - Cosine - 1&3}
+fit.ff.cos.Twitter3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim + brand_cat_sim * avg_brand_brand_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Twitter)
+summary(fit.ff.cos.Twitter3)
+
+# ANOVA between models with/without average brand-brand similarity
+anova(fit.ff.cos.Twitter3, fit.ff.cos.Twitter, test = "LRT")
+```
+
+```{r, Wiki - DotProduct}
+
+fit.ff.dot.Wiki <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim, 
+                       family = binomial(link = "logit"), 
+                       data = ff.fluency.dot.Wiki)
+summary(fit.ff.dot.Wiki)
+
+fit.ff.dot.Wiki2 <- glm(recalled ~ brand_cat_sim, 
+                        family = binomial(link = "logit"), 
+                        data = ff.fluency.dot.Wiki)
+summary(fit.ff.dot.Wiki2)
+
+anova(fit.ff.dot.Wiki2, fit.ff.dot.Wiki, test = "LRT")
+
+```
+
+```{r, Wiki - DotProduct - 1&3}
+fit.ff.dot.Wiki3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim + brand_cat_sim * avg_brand_brand_sim, 
+                        family = binomial(link = "logit"), 
+                        data = ff.fluency.dot.Wiki)
+summary(fit.ff.dot.Wiki3)
+
+anova(fit.ff.dot.Wiki3, fit.ff.dot.Wiki, test = "LRT")
+
+```
+
+```{r, Wiki - Cosine}
+fit.ff.cos.Wiki <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim, 
+                           family = binomial(link = "logit"), 
+                           data = ff.fluency.cos.Wiki)
+summary(fit.ff.cos.Wiki)
+
+fit.ff.cos.Wiki2 <- glm(recalled ~ brand_cat_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Wiki)
+summary(fit.ff.cos.Wiki2)
+
+anova(fit.ff.cos.Wiki2, fit.ff.cos.Wiki, test = "LRT")
+```
+
+```{r, Wiki - Cosine - 1&3}
+fit.ff.cos.Wiki3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim + brand_cat_sim * avg_brand_brand_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Wiki)
+summary(fit.ff.cos.Wiki3)
+
+anova(fit.ff.cos.Wiki3, fit.ff.cos.Wiki, test = "LRT")
+```
+
+```{r, Word2vec - DotProduct}
+fit.ff.dot.Word2vec <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim, 
+                           family = binomial(link = "logit"), 
+                           data = ff.fluency.dot.Word2vec)
+summary(fit.ff.dot.Word2vec)
+
+fit.ff.dot.Word2vec2 <- glm(recalled ~ brand_cat_sim, 
+                               family = binomial(link = "logit"), 
+                               data = ff.fluency.dot.Word2vec)
+summary(fit.ff.dot.Word2vec2)
+
+anova(fit.ff.dot.Word2vec2, fit.ff.dot.Word2vec, test = "LRT")
+
+```
+
+```{r, Word2vec - DotProduct - 1&3}
+fit.ff.dot.Word2vec3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim + brand_cat_sim * avg_brand_brand_sim, 
+                               family = binomial(link = "logit"), 
+                               data = ff.fluency.dot.Word2vec)
+summary(fit.ff.dot.Word2vec3)
+
+anova(fit.ff.dot.Word2vec3, fit.ff.dot.Word2vec, test = "LRT")
+
+```
+
+
+```{r, Word2vec - Cosine}
+fit.ff.cos.Word2vec <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim, 
+                           family = binomial(link = "logit"), 
+                           data = ff.fluency.cos.Word2vec)
+summary(fit.ff.cos.Word2vec)
+
+fit.ff.cos.Word2vec2 <- glm(recalled ~ brand_cat_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Word2vec)
+summary(fit.ff.cos.Word2vec2)
+
+anova(fit.ff.cos.Word2vec2, fit.ff.cos.Word2vec, test = "LRT")
+```
+
+```{r, Word2vec - Cosine - 1&3}
+fit.ff.cos.Word2vec3 <- glm(recalled ~ brand_cat_sim + avg_brand_brand_sim + brand_cat_sim * avg_brand_brand_sim, 
+                            family = binomial(link = "logit"), 
+                            data = ff.fluency.cos.Word2vec)
+summary(fit.ff.cos.Word2vec3)
+
+anova(fit.ff.cos.Word2vec3, fit.ff.cos.Word2vec, test = "LRT")
+```
+
+
+
+### Saturated model fitted
+
+```{r, saturated model, Twitter}
+# install.packages("ggrepel")
+# install.packages("ggplot2")
+# devtools::install_github("tidyverse/ggplot2")
+library(ggrepel)
+library(ggplot2)
+
+numbrands <- dim(filter(ff.fluency.cos.Twitter, subID == 1))[1]
+fit.ff.saturated.cos.Twitter <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.cos.Twitter)
+df1<-data.frame(brand_name=unlist(ff.fluency.cos.Twitter$brand_name[c(1:numbrands, 0)]),
+           glm_fitted=fitted(fit.ff.cos.Twitter)[c(1:numbrands,0)],
+           sat_fitted=fitted(fit.ff.saturated.cos.Twitter)[c(1:numbrands, 0)])
+# rownames(df1) <- df1$brand_name
+p1 <- ggplot(df1, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  geom_text_repel() + ggtitle("Twitter - Cosine") + coord_fixed(ratio=1)
+
+fit.ff.saturated.dot.Twitter <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.dot.Twitter)
+df2<-data.frame(brand_name=unlist(ff.fluency.dot.Twitter$brand_name[c(1:numbrands,0)]),
+           glm_fitted=fitted(fit.ff.dot.Twitter)[c(1:numbrands,0)],
+           sat_fitted=fitted(fit.ff.saturated.dot.Twitter)[c(1:numbrands,0)])
+# rownames(df2) <- df2$brand_name
+p2 <- ggplot(df2, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  geom_text_repel() + ggtitle("Twitter - Dot Product") + coord_fixed(ratio=1)
+gridExtra::grid.arrange(p1,p2, nrow=1, ncol=2)
+
+```
+
+```{r, saturated model, Wiki}
+numbrands <- dim(filter(ff.fluency.cos.Wiki, subID == 1))[1]
+fit.ff.saturated.cos.Wiki <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.cos.Wiki)
+df3<-data.frame(brand_name=unlist(ff.fluency.cos.Wiki$brand_name[c(1:numbrands, 0)]),
+           glm_fitted=fitted(fit.ff.cos.Wiki)[c(1:numbrands, 0)],
+           sat_fitted=fitted(fit.ff.saturated.cos.Wiki)[c(1:numbrands, 0)])
+# rownames(df3) <- df3$brand_name
+p3 <- ggplot(df3, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  geom_text_repel() + ggtitle("Wiki - Cosine") + coord_fixed(ratio=1)
+
+fit.ff.saturated.dot.Wiki <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.dot.Wiki)
+df4<-data.frame(brand_name=unlist(ff.fluency.dot.Wiki$brand_name[c(1:numbrands, 0)]),
+           glm_fitted=fitted(fit.ff.dot.Wiki)[c(1:numbrands, 0)],
+           sat_fitted=fitted(fit.ff.saturated.dot.Wiki)[c(1:numbrands, 0)])
+# rownames(df4) <- df4$brand_name
+p4 <- ggplot(df4, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  geom_text_repel() + ggtitle("Wiki - Dot Product") + coord_fixed(ratio=1)
+
+gridExtra::grid.arrange(p3,p4, nrow=1, ncol=2)
+```
+
+
+```{r, saturated model, Word2vec}
+numbrands <- dim(filter(ff.fluency.cos.Word2vec, subID == 1))[1]
+fit.ff.saturated.cos.Word2vec <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.cos.Word2vec)
+df5<-data.frame(brand_name=unlist(ff.fluency.cos.Word2vec$brand_name[c(1:numbrands, 0)]),
+           glm_fitted=fitted(fit.ff.cos.Word2vec)[c(1:numbrands, 0)],
+           sat_fitted=fitted(fit.ff.saturated.cos.Word2vec)[c(1:numbrands, 0)])
+# rownames(df5) <- df5$brand_name
+p5 <- ggplot(df5, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  geom_text_repel() + ggtitle("Word2vec - Cosine") + coord_fixed(ratio=1)
+
+fit.ff.saturated.dot.Word2vec <- glm(recalled ~ brand_name, family = binomial(link = "logit"), data = ff.fluency.dot.Word2vec)
+df6<-data.frame(brand_name=unlist(ff.fluency.dot.Word2vec$brand_name[c(1:numbrands, 0)]),
+           glm_fitted=fitted(fit.ff.dot.Word2vec)[c(1:numbrands, 0)],
+           sat_fitted=fitted(fit.ff.saturated.dot.Word2vec)[c(1:numbrands, 0)])
+# rownames(df6) <- df6$brand_name
+p6 <- ggplot(df6, aes(glm_fitted, sat_fitted, label = brand_name)) + geom_point(color = "blue") +  
+geom_text_repel() + ggtitle("Word2vec - Dot Product") + coord_fixed(ratio=1)
+
+gridExtra::grid.arrange(p5,p6, nrow=1, ncol=2)
+
+```
+
+
+
+
+
